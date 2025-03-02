@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const emailService = require('../services/emailService');
+const sendEmail = require('../utils/email');
 
 // Token yaratish yordamchi funksiyasi
 const generateToken = (user) => {
@@ -29,6 +30,7 @@ const generateToken = (user) => {
  *               - email
  *               - phone
  *               - password
+ *               - passwordConfirm
  *             properties:
  *               name:
  *                 type: string
@@ -40,6 +42,9 @@ const generateToken = (user) => {
  *               password:
  *                 type: string
  *                 format: password
+ *               passwordConfirm:
+ *                 type: string
+ *                 description: Must match password field
  *     responses:
  *       201:
  *         description: Foydalanuvchi muvaffaqiyatli ro'yxatdan o'tdi va tasdiqlash emaili yuborildi.
@@ -59,20 +64,71 @@ const generateToken = (user) => {
  */
 exports.register = async (req, res, next) => {
   try {
-    const { name, email, phone, password } = req.body;
+    const { name, email, phone, password, passwordConfirm } = req.body;
     let user = await User.findOne({ email });
     if (user) {
       return res.status(400).json({ message: 'Email already registered' });
     }
-    user = await User.create({ name, email, phone, password });
+
+    // Create new user with all required fields
+    user = await User.create({
+      name,
+      email,
+      phone,
+      password,
+      passwordConfirm
+    });
     
-    // Token yaratish
-    const token = generateToken(user);
-    
-    // Email orqali tasdiqlash xabari yuborish
-    await emailService.sendVerificationEmail(user.email, token);
-  
-    res.status(201).json({ message: 'User registered. Please verify your email.', token });
+    // Create verification token
+    const verificationToken = user.createEmailVerificationToken();
+    await user.save({ validateBeforeSave: false });
+
+    // Create verification URL
+    const verificationURL = `${req.protocol}://${req.get('host')}/api/v1/verify-email/${verificationToken}`;
+
+    const message = `
+      Hello ${user.name},
+      Please verify your email by clicking on the link below:
+      ${verificationURL}
+      If you didn't request this email, please ignore it.
+    `;
+
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Email Verification',
+        message,
+        html: `
+          <h1>Welcome to Books!</h1>
+          <p>Please verify your email by clicking the button below:</p>
+          <a href="${verificationURL}" style="
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+          ">Verify Email</a>
+          <p>If you didn't request this email, please ignore it.</p>
+          <p>The link is valid for 24 hours.</p>
+        `
+      });
+
+      // Token yaratish
+      const token = generateToken(user);
+      res.status(201).json({ 
+        status: 'success',
+        message: 'Verification email sent successfully',
+        token 
+      });
+    } catch (err) {
+      user.emailVerificationToken = undefined;
+      user.emailVerificationExpires = undefined;
+      await user.save({ validateBeforeSave: false });
+
+      return next(new Error('There was an error sending the email. Try again later!'));
+    }
   } catch (error) {
     next(error);
   }
@@ -122,13 +178,13 @@ exports.register = async (req, res, next) => {
 exports.login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).select('+password');
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
 
-    const isMatch = await user.comparePassword(password);
+    const isMatch = await user.correctPassword(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
-    if (!user.isVerified) return res.status(400).json({ message: 'Email not verified' });
+    if (!user.isEmailVerified) return res.status(400).json({ message: 'Email not verified' });
 
     const token = generateToken(user);
     res.status(200).json({ token, data: user });

@@ -16,7 +16,7 @@ router.get('/google', passport.authenticate('google', { scope: ['profile', 'emai
 router.get('/google/callback', passport.authenticate('google', { session: false }), authController.socialAuthCallback);
 
 // Facebook
-router.get('/facebook', passport.authenticate('facebook', { scope: ['email'] }));
+router.get('/facebook', passport.authenticate('facebook', { scope: ['email', 'public_profile'] }));
 router.get('/facebook/callback', passport.authenticate('facebook', { session: false }), authController.socialAuthCallback);
 
 // GitHub

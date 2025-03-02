@@ -2,77 +2,100 @@
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const FacebookStrategy = require('passport-facebook').Strategy;
-const GitHubStrategy = require('passport-github').Strategy;
-const User = require('../models/User'); // Foydalanuvchi modeli
+const User = require('../models/User');
 
-// Google strategiyasi
+// Google Strategy
 passport.use(new GoogleStrategy({
-  clientID: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  callbackURL: "/api/auth/google/callback"
-}, async (accessToken, refreshToken, profile, done) => {
-  try {
-    // Foydalanuvchini topish yoki yangi foydalanuvchini yaratish
-    let user = await User.findOne({ googleId: profile.id });
-    if (!user) {
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: process.env.GOOGLE_CALLBACK_URL,
+    passReqToCallback: true
+  },
+  async (req, accessToken, refreshToken, profile, done) => {
+    try {
+      // Check if user already exists
+      let user = await User.findOne({ email: profile.emails[0].value });
+
+      if (user) {
+        // If user exists, update Google ID if not set
+        if (!user.googleId) {
+          user.googleId = profile.id;
+          await user.save({ validateBeforeSave: false });
+        }
+        return done(null, user);
+      }
+
+      // If user doesn't exist, create new user
       user = await User.create({
         name: profile.displayName,
         email: profile.emails[0].value,
+        photo: profile.photos[0].value,
         googleId: profile.id,
-        // Qo'shimcha ma'lumotlar
+        isEmailVerified: true, // Google emails are already verified
+        password: Math.random().toString(36).slice(-8), // Random password
+        passwordConfirm: Math.random().toString(36).slice(-8) // Will be hashed anyway
       });
-    }
-    done(null, user);
-  } catch (error) {
-    done(error, null);
-  }
-}));
 
-// Facebook strategiyasi
+      done(null, user);
+    } catch (error) {
+      done(error, null);
+    }
+  }
+));
+
+// Facebook Strategy
 passport.use(new FacebookStrategy({
-  clientID: process.env.FACEBOOK_CLIENT_ID,
-  clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
-  callbackURL: "/api/auth/facebook/callback",
-  profileFields: ['id', 'displayName', 'email']
-}, async (accessToken, refreshToken, profile, done) => {
-  try {
-    let user = await User.findOne({ facebookId: profile.id });
-    if (!user) {
+    clientID: process.env.FACEBOOK_APP_ID,
+    clientSecret: process.env.FACEBOOK_APP_SECRET,
+    callbackURL: process.env.FACEBOOK_CALLBACK_URL,
+    profileFields: ['id', 'displayName', 'photos', 'email'],
+    passReqToCallback: true
+  },
+  async (req, accessToken, refreshToken, profile, done) => {
+    try {
+      // Check if user already exists
+      let user = await User.findOne({ email: profile.emails[0].value });
+
+      if (user) {
+        // If user exists, update Facebook ID if not set
+        if (!user.facebookId) {
+          user.facebookId = profile.id;
+          await user.save({ validateBeforeSave: false });
+        }
+        return done(null, user);
+      }
+
+      // If user doesn't exist, create new user
       user = await User.create({
         name: profile.displayName,
-        email: profile.emails ? profile.emails[0].value : '',
+        email: profile.emails[0].value,
+        photo: profile.photos[0].value,
         facebookId: profile.id,
+        isEmailVerified: true, // Facebook emails are already verified
+        password: Math.random().toString(36).slice(-8), // Random password
+        passwordConfirm: Math.random().toString(36).slice(-8) // Will be hashed anyway
       });
-    }
-    done(null, user);
-  } catch (error) {
-    done(error, null);
-  }
-}));
 
-// GitHub strategiyasi
-passport.use(new GitHubStrategy({
-  clientID: process.env.GITHUB_CLIENT_ID,
-  clientSecret: process.env.GITHUB_CLIENT_SECRET,
-  callbackURL: "/api/auth/github/callback"
-}, async (accessToken, refreshToken, profile, done) => {
+      done(null, user);
+    } catch (error) {
+      done(error, null);
+    }
+  }
+));
+
+// Serialize user for the session
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+// Deserialize user from the session
+passport.deserializeUser(async (id, done) => {
   try {
-    let user = await User.findOne({ githubId: profile.id });
-    if (!user) {
-      user = await User.create({
-        name: profile.username,
-        email: profile.emails ? profile.emails[0].value : '',
-        githubId: profile.id,
-      });
-    }
+    const user = await User.findById(id);
     done(null, user);
   } catch (error) {
     done(error, null);
   }
-}));
-
-// Passport sessiya (agar kerak bo'lsa, JWT ishlatadigan bo'lsangiz sessiyadan voz kechish mumkin)
-// passport.serializeUser(...)
-// passport.deserializeUser(...)
+});
 
 module.exports = passport;

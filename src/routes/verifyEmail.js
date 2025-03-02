@@ -1,34 +1,109 @@
 // src/routes/verifyEmail.js
 const express = require('express');
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
 const router = express.Router();
+const emailController = require('../controllers/emailController');
+const { validateEmail, validatePassword } = require('../middlewares/validationMiddleware');
+const { protect } = require('../middlewares/authMiddleware');
 
 /**
- * @route GET /verify-email
- * @desc Email tasdiqlash endpointi
- * @query {string} token - JWT token
+ * @swagger
+ * tags:
+ *   name: Email
+ *   description: Email verification endpoints
  */
-router.get('/verify-email', async (req, res) => {
-    const { token } = req.query;
-    console.log(token,"token");
-  if (!token) {
-    return res.status(400).send('Token is missing');
-  }
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id);
-    if (!user) {
-      return res.status(400).send('User not found');
-    }
-    // Email tasdiqlash
-    user.isVerified = true;
-    await user.save();
-    res.send('Your email has been successfully verified. You can now log in.');
-  } catch (error) {
-    console.error(error);
-    res.status(400).send('Invalid or expired token');
-  }
-});
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     EmailRequest:
+ *       type: object
+ *       required:
+ *         - email
+ *       properties:
+ *         email:
+ *           type: string
+ *           format: email
+ *           description: User's email address
+ *     PasswordReset:
+ *       type: object
+ *       required:
+ *         - password
+ *         - passwordConfirm
+ *       properties:
+ *         password:
+ *           type: string
+ *           format: password
+ *           description: New password
+ *         passwordConfirm:
+ *           type: string
+ *           format: password
+ *           description: Confirm new password
+ */
+
+/**
+ * @swagger
+ * /verify-email/{token}:
+ *   get:
+ *     summary: Verify email address
+ *     tags: [Email]
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Email verification token
+ *     responses:
+ *       200:
+ *         description: Email verified successfully
+ *       400:
+ *         description: Invalid or expired token
+ */
+router.get('/verify-email/:token', emailController.verifyEmail);
+
+
+/**
+ * @swagger
+ * /forgot-password:
+ *   post:
+ *     summary: Request password reset
+ *     tags: [Email]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EmailRequest'
+ *     responses:
+ *       200:
+ *         description: Password reset email sent
+ *       404:
+ *         description: Email not found
+ */
+router.post('/forgot-password', validateEmail, emailController.forgotPassword);
+
+
+/**
+ * @swagger
+ * /resend-verification:
+ *   post:
+ *     summary: Resend verification email
+ *     tags: [Email]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EmailRequest'
+ *     responses:
+ *       200:
+ *         description: Verification email resent
+ *       400:
+ *         description: Email already verified
+ *       404:
+ *         description: Email not found
+ */
+router.post('/resend-verification', validateEmail, emailController.resendVerificationEmail);
 
 module.exports = router;

@@ -1,72 +1,136 @@
 const Book = require('../models/Book');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/appError');
+const APIFeatures = require('../utils/apiFeatures');
 
-exports.createBook = async (req, res, next) => {
-  try {
-    const book = await Book.create(req.body);
-    res.status(201).json({ book });
-  } catch (error) {
-    next(error);
-  }
-};
-// src/controllers/bookController.js
-exports.getBooks = async (req, res, next) => {
-    try {
-      // Query parametrlarini oling
-      const { title, category } = req.query;
-      let filter = {};
-  
-      if (title) {
-        // regex orqali title bo'yicha qidiruv
-        filter.title = { $regex: title, $options: 'i' };
+// Get all books
+exports.getAllBooks = catchAsync(async (req, res) => {
+  const features = new APIFeatures(Book.find(), req.query)
+    .filter()
+    .sort()
+    .limitFields()
+    .paginate();
+
+  const books = await features.query.populate([
+    { path: 'author', select: 'name' },
+    { path: 'categories', select: 'name' }
+  ]);
+
+  res.status(200).json({
+    status: 'success',
+    results: books.length,
+    data: { books }
+  });
+});
+
+// Get single book
+exports.getBook = catchAsync(async (req, res, next) => {
+  const book = await Book.findById(req.params.id)
+    .populate('author')
+    .populate('categories')
+    .populate({
+      path: 'reviews',
+      populate: {
+        path: 'user',
+        select: 'name photo'
       }
-      if (category) {
-        filter.categories = { $in: [category] };
-      }
-      
-      // Filter qilingan kitoblarni olish
-      const books = await Book.find(filter).populate('author');
-      res.status(200).json({ books });
-    } catch (error) {
-      next(error);
-    }
-  };
+    });
+
+  if (!book) {
+    return next(new AppError('No book found with that ID', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: { book }
+  });
+});
+
+// Create new book
+exports.createBook = catchAsync(async (req, res) => {
+  const book = await Book.create(req.body);
+
+  res.status(201).json({
+    status: 'success',
+    data: { book }
+  });
+});
+
+// Update book
+exports.updateBook = catchAsync(async (req, res, next) => {
+  const book = await Book.findByIdAndUpdate(req.params.id, req.body, {
+    new: true,
+    runValidators: true
+  });
+
+  if (!book) {
+    return next(new AppError('No book found with that ID', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: { book }
+  });
+});
+
+// Delete book
+exports.deleteBook = catchAsync(async (req, res, next) => {
+  const book = await Book.findByIdAndDelete(req.params.id);
+
+  if (!book) {
+    return next(new AppError('No book found with that ID', 404));
+  }
+
+  res.status(204).json({
+    status: 'success',
+    data: null
+  });
+});
+
+// Search books
+exports.searchBooks = catchAsync(async (req, res) => {
+  const { query } = req.query;
   
-exports.getBooks = async (req, res, next) => {
-  try {
-    // Filterlash, qidiruv va paginatsiyani qo'shishingiz mumkin
-    const books = await Book.find().populate('author');
-    res.status(200).json({ books });
-  } catch (error) {
-    next(error);
-  }
-};
+  const books = await Book.find(
+    { $text: { $search: query } },
+    { score: { $meta: 'textScore' } }
+  )
+    .sort({ score: { $meta: 'textScore' } })
+    .populate('author', 'name')
+    .populate('categories', 'name');
 
-exports.getBook = async (req, res, next) => {
-  try {
-    const book = await Book.findById(req.params.id).populate('author');
-    if (!book) return res.status(404).json({ message: 'Book not found' });
-    res.status(200).json({ book });
-  } catch (error) {
-    next(error);
-  }
-};
+  res.status(200).json({
+    status: 'success',
+    results: books.length,
+    data: { books }
+  });
+});
 
-exports.updateBook = async (req, res, next) => {
-  try {
-    const book = await Book.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    if (!book) return res.status(404).json({ message: 'Book not found' });
-    res.status(200).json({ book });
-  } catch (error) {
-    next(error);
-  }
-};
+// Get books by category
+exports.getBooksByCategory = catchAsync(async (req, res) => {
+  const { categoryId } = req.params;
 
-exports.deleteBook = async (req, res, next) => {
-  try {
-    const book = await Book.findByIdAndDelete(req.params.id);
-    if (!book) return res.status(404).json({ message: 'Book not found' });
-    res.status(200).json({ message: 'Book deleted successfully' });
-  } catch (error) {
-    next(error);
-  }
-};
+  const books = await Book.find({ categories: categoryId })
+    .populate('author', 'name')
+    .populate('categories', 'name');
+
+  res.status(200).json({
+    status: 'success',
+    results: books.length,
+    data: { books }
+  });
+});
+
+// Get books by author
+exports.getBooksByAuthor = catchAsync(async (req, res) => {
+  const { authorId } = req.params;
+
+  const books = await Book.find({ author: authorId })
+    .populate('categories', 'name');
+
+  res.status(200).json({
+    status: 'success',
+    results: books.length,
+    data: { books }
+  });
+});
